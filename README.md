@@ -17,7 +17,10 @@ Try bringing back Blueprint Nativization to UE5
 + Use ChatGPT or DeepSeek to translate them.
 
 ## Known Issues
-+ UDynamicClass has been removed.
++ ~~UDynamicClass has been removed.~~
 + Some new properties are not supported.
 + more
 
+## Screenshots
+![tool entry](ResourcesForReadMe/tool_entry.png)
+![tool entry](ResourcesForReadMe/tool_interface.png)
