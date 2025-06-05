@@ -1412,9 +1412,7 @@ void FBlueprintCompilerCppBackendBase::EmitFileBeginning(const FString& CleanNam
 
 	FBackendHelperUMG::AdditionalHeaderIncludeForWidget(EmitterContext);
 	
-	// TODO @zhouminyi 
-	BP_CONVERTER_DEBUG("Cannot handle FBackendHelperAnim::AddHeaders");
-	//FBackendHelperAnim::AddHeaders(EmitterContext);
+	FBackendHelperAnim::AddHeaders(EmitterContext);
 
 	TSet<FString> AlreadyIncluded;
 	AlreadyIncluded.Add(CleanName);

@@ -35,6 +35,53 @@
 
 #include "BPConverterDebugHelper.h"
 
+struct FBlueprintDependencyType
+{
+	uint8 bSerializationBeforeSerializationDependency : 1;
+	uint8 bCreateBeforeSerializationDependency : 1;
+	uint8 bSerializationBeforeCreateDependency : 1;
+	uint8 bCreateBeforeCreateDependency : 1;
+
+	FBlueprintDependencyType()
+		: bSerializationBeforeSerializationDependency(0)
+		, bCreateBeforeSerializationDependency(0)
+		, bSerializationBeforeCreateDependency(0)
+		, bCreateBeforeCreateDependency(0) {
+	}
+
+	FBlueprintDependencyType(bool bInSerializationBeforeSerializationDependency
+		, bool bInCreateBeforeSerializationDependency
+		, bool bInSerializationBeforeCreateDependency
+		, bool bInCreateBeforeCreateDependency)
+		: bSerializationBeforeSerializationDependency(bInSerializationBeforeSerializationDependency)
+		, bCreateBeforeSerializationDependency(bInCreateBeforeSerializationDependency)
+		, bSerializationBeforeCreateDependency(bInSerializationBeforeCreateDependency)
+		, bCreateBeforeCreateDependency(bInCreateBeforeCreateDependency)
+	{
+	}
+};
+
+struct  FCompactBlueprintDependencyData
+{
+	int16 ObjectRefIndex;
+	FBlueprintDependencyType StructDependency;
+	FBlueprintDependencyType CDODependency;
+
+	FCompactBlueprintDependencyData()
+		: ObjectRefIndex(-1)
+	{
+	}
+
+	FCompactBlueprintDependencyData(int16 InObjectRefIndex
+		, FBlueprintDependencyType InStructDependency
+		, FBlueprintDependencyType InCDODependency = FBlueprintDependencyType())
+		: ObjectRefIndex(InObjectRefIndex)
+		, StructDependency(InStructDependency)
+		, CDODependency(InCDODependency)
+	{
+	}
+};
+
 void FEmitDefaultValueHelper::OuterGenerate(FEmitterLocalContext& Context
 	, const FProperty* Property
 	, const FString& OuterPath
@@ -1439,37 +1486,36 @@ struct FFakeImportTableHelper
 		}
 	}
 
-	// TODO @zhouminyi
-	//void FillDependencyData(const UObject* Asset, FCompactBlueprintDependencyData& CompactDataRef) const
-	//{
-	//	ensure(Asset);
+	void FillDependencyData(const UObject* Asset, FCompactBlueprintDependencyData& CompactDataRef) const
+	{
+		ensure(Asset);
 
-	//	{
-	//		//Dynamic Class requires no non-native class, owner, archetype..
-	//		CompactDataRef.StructDependency.bSerializationBeforeCreateDependency = false;
-	//		CompactDataRef.StructDependency.bCreateBeforeCreateDependency = false;
+		{
+			//Dynamic Class requires no non-native class, owner, archetype..
+			CompactDataRef.StructDependency.bSerializationBeforeCreateDependency = false;
+			CompactDataRef.StructDependency.bCreateBeforeCreateDependency = false;
 
-	//		const bool bDependencyNecessaryForLinking = SerializeBeforeSerializeStructDependencies.Contains(const_cast<UObject*>(Asset));
+			const bool bDependencyNecessaryForLinking = SerializeBeforeSerializeStructDependencies.Contains(const_cast<UObject*>(Asset));
 
-	//		// Super Class, Interfaces, ScriptStructs, Enums..
-	//		CompactDataRef.StructDependency.bSerializationBeforeSerializationDependency = bDependencyNecessaryForLinking;
+			// Super Class, Interfaces, ScriptStructs, Enums..
+			CompactDataRef.StructDependency.bSerializationBeforeSerializationDependency = bDependencyNecessaryForLinking;
 
-	//		// Everything else
-	//		CompactDataRef.StructDependency.bCreateBeforeSerializationDependency = !bDependencyNecessaryForLinking;
-	//	}
+			// Everything else
+			CompactDataRef.StructDependency.bCreateBeforeSerializationDependency = !bDependencyNecessaryForLinking;
+		}
 
-	//	{
-	//		//everything was created for class
-	//		CompactDataRef.CDODependency.bCreateBeforeCreateDependency = false; 
+		{
+			//everything was created for class
+			CompactDataRef.CDODependency.bCreateBeforeCreateDependency = false; 
 
-	//		// Classes of subobjects, created while CDO construction, including assets they depend on for their own construction
-	//		CompactDataRef.CDODependency.bSerializationBeforeCreateDependency = SerializeBeforeCreateCDODependencies.Contains(const_cast<UObject*>(Asset));
+			// Classes of subobjects, created while CDO construction, including assets they depend on for their own construction
+			CompactDataRef.CDODependency.bSerializationBeforeCreateDependency = SerializeBeforeCreateCDODependencies.Contains(const_cast<UObject*>(Asset));
 
-	//		// CDO is not serialized
-	//		CompactDataRef.CDODependency.bCreateBeforeSerializationDependency = false;
-	//		CompactDataRef.CDODependency.bSerializationBeforeSerializationDependency = false;
-	//	}
-	//}
+			// CDO is not serialized
+			CompactDataRef.CDODependency.bCreateBeforeSerializationDependency = false;
+			CompactDataRef.CDODependency.bSerializationBeforeSerializationDependency = false;
+		}
+	}
 };
 
 void FEmitDefaultValueHelper::AddStaticFunctionsForDependencies(FEmitterLocalContext& Context
@@ -1503,9 +1549,7 @@ void FEmitDefaultValueHelper::AddStaticFunctionsForDependencies(FEmitterLocalCon
 		}
 		else if (AssetType->IsChildOf<UBlueprintGeneratedClass>() && Context.Dependencies.WillClassBeConverted(CastChecked<UBlueprintGeneratedClass>(AssetObj)))
 		{
-			// TODO @zhouminyi
-			BP_CONVERTER_DEBUG("UDynamicClass was removed!");
-			
+			// @zhouminyi Ignore Dynamic class.
 			//AssetType = UDynamicClass::StaticClass();
 		}
 
@@ -1525,108 +1569,105 @@ void FEmitDefaultValueHelper::AddStaticFunctionsForDependencies(FEmitterLocalCon
 			, *AssetType->GetName()
 			, *OuterName);
 	};
-
-	// TODO @zhouminyi
-	BP_CONVERTER_DEBUG("...");
 	
-	//auto CreateDependencyRecord = [&NativizationOptions, &FakeImportTableHelper, &CppTypeName, OriginalClass, &CreateAssetToLoadString, bEnableBootTimeEDLOptimization](const UObject* InAsset, FString& OptionalComment) -> FCompactBlueprintDependencyData
-	//{
-	//	ensure(InAsset);
-	//	if (InAsset && IsEditorOnlyObject(InAsset))
-	//	{
-	//		UE_LOG(LogK2Compiler, Warning, TEXT("Nativized %s depends on editor only asset: %s")
-	//			, (OriginalClass ? *OriginalClass->GetPathName() : *CppTypeName)
-	//			,*InAsset->GetPathName());
-	//		OptionalComment = TEXT("Editor Only asset");
-	//		return FCompactBlueprintDependencyData{};
-	//	}
+	auto CreateDependencyRecord = [&NativizationOptions, &FakeImportTableHelper, &CppTypeName, OriginalClass, &CreateAssetToLoadString, bEnableBootTimeEDLOptimization](const UObject* InAsset, FString& OptionalComment) -> FCompactBlueprintDependencyData
+		{
+			ensure(InAsset);
+			if (InAsset && IsEditorOnlyObject(InAsset))
+			{
+				UE_LOG(LogK2Compiler, Warning, TEXT("Nativized %s depends on editor only asset: %s")
+					, (OriginalClass ? *OriginalClass->GetPathName() : *CppTypeName)
+					, *InAsset->GetPathName());
+				OptionalComment = TEXT("Editor Only asset");
+				return FCompactBlueprintDependencyData{};
+			}
 
-	//	{
-	//		bool bNotForClient = false;
-	//		bool bNotForServer = false;
-	//		for (const UObject* Search = InAsset; Search && !Search->IsA(UPackage::StaticClass()); Search = Search->GetOuter())
-	//		{
-	//			bNotForClient = bNotForClient || !Search->NeedsLoadForClient();
-	//			bNotForServer = bNotForServer || !Search->NeedsLoadForServer();
-	//		}
-	//		if (bNotForServer && NativizationOptions.ServerOnlyPlatform)
-	//		{
-	//			OptionalComment = TEXT("Not for server");
-	//			return FCompactBlueprintDependencyData{};
-	//		}
-	//		if (bNotForClient && NativizationOptions.ClientOnlyPlatform)
-	//		{
-	//			OptionalComment = TEXT("Not for client");
-	//			return FCompactBlueprintDependencyData{};
-	//		}
-	//	}
+			{
+				bool bNotForClient = false;
+				bool bNotForServer = false;
+				for (const UObject* Search = InAsset; Search && !Search->IsA(UPackage::StaticClass()); Search = Search->GetOuter())
+				{
+					bNotForClient = bNotForClient || !Search->NeedsLoadForClient();
+					bNotForServer = bNotForServer || !Search->NeedsLoadForServer();
+				}
+				if (bNotForServer && NativizationOptions.ServerOnlyPlatform)
+				{
+					OptionalComment = TEXT("Not for server");
+					return FCompactBlueprintDependencyData{};
+				}
+				if (bNotForClient && NativizationOptions.ClientOnlyPlatform)
+				{
+					OptionalComment = TEXT("Not for client");
+					return FCompactBlueprintDependencyData{};
+				}
+			}
 
-	//	FNativizationSummary::FDependencyRecord& DependencyRecord = FDependenciesGlobalMapHelper::FindDependencyRecord(InAsset);
-	//	ensure(DependencyRecord.Index >= 0);
-	//	if (DependencyRecord.NativeLine.IsEmpty())
-	//	{
-	//		DependencyRecord.NativeLine = CreateAssetToLoadString(InAsset);
-	//	}
+		FNativizationSummary::FDependencyRecord& DependencyRecord = FDependenciesGlobalMapHelper::FindDependencyRecord(InAsset);
+		ensure(DependencyRecord.Index >= 0);
+		if (DependencyRecord.NativeLine.IsEmpty())
+		{
+			DependencyRecord.NativeLine = CreateAssetToLoadString(InAsset);
+		}
 
-	//	FCompactBlueprintDependencyData Result;
-	//	Result.ObjectRefIndex = static_cast<int16>(DependencyRecord.Index);
-	//	FakeImportTableHelper.FillDependencyData(InAsset, Result);
-	//	return Result;
-	//};
+		FCompactBlueprintDependencyData Result;
+		Result.ObjectRefIndex = static_cast<int16>(DependencyRecord.Index);
+		FakeImportTableHelper.FillDependencyData(InAsset, Result);
+		return Result;
+	};
 	
-	//auto AddAssetArray = [&Context, SourceStruct, &CreateDependencyRecord, bEnableBootTimeEDLOptimization](const TArray<const UObject*>& Assets)
-	//{
-	//	if (Assets.Num())
-	//	{
-	//		Context.AddLine(TEXT("const FCompactBlueprintDependencyData LocCompactBlueprintDependencyData[] ="));
-	//		Context.AddLine(TEXT("{"));
-	//		Context.IncreaseIndent();
-	//	}
+	auto AddAssetArray = [&Context, SourceStruct, &CreateDependencyRecord, bEnableBootTimeEDLOptimization](const TArray<const UObject*>& Assets)
+	{
+		if (Assets.Num())
+		{
+			Context.AddLine(TEXT("const FCompactBlueprintDependencyData LocCompactBlueprintDependencyData[] ="));
+			Context.AddLine(TEXT("{"));
+			Context.IncreaseIndent();
+		}
 
-	//	auto BlueprintDependencyTypeToString = [](FBlueprintDependencyType DependencyType) -> FString
-	//	{
-	//		return FString::Printf(TEXT("FBlueprintDependencyType(%s, %s, %s, %s)")
-	//			, DependencyType.bSerializationBeforeSerializationDependency ? TEXT("true") : TEXT("false")
-	//			, DependencyType.bCreateBeforeSerializationDependency ? TEXT("true") : TEXT("false")
-	//			, DependencyType.bSerializationBeforeCreateDependency ? TEXT("true") : TEXT("false")
-	//			, DependencyType.bCreateBeforeCreateDependency ? TEXT("true") : TEXT("false"));
-	//	};
+		auto BlueprintDependencyTypeToString = [](FBlueprintDependencyType DependencyType) -> FString
+		{
+			return FString::Printf(TEXT("FBlueprintDependencyType(%s, %s, %s, %s)")
+				, DependencyType.bSerializationBeforeSerializationDependency ? TEXT("true") : TEXT("false")
+				, DependencyType.bCreateBeforeSerializationDependency ? TEXT("true") : TEXT("false")
+				, DependencyType.bSerializationBeforeCreateDependency ? TEXT("true") : TEXT("false")
+				, DependencyType.bCreateBeforeCreateDependency ? TEXT("true") : TEXT("false"));
+		};
 
-	//	for (const UObject* LocAsset : Assets)
-	//	{
-	//		FString OptionalComment;
-	//		const FCompactBlueprintDependencyData DependencyRecord = CreateDependencyRecord(LocAsset, OptionalComment);
+		for (const UObject* LocAsset : Assets)
+		{
+			FString OptionalComment;
+			const FCompactBlueprintDependencyData DependencyRecord = CreateDependencyRecord(LocAsset, OptionalComment);
 
-	//		if (SourceStruct->IsA<UClass>())
-	//		{
-	//			Context.AddLine(FString::Printf(TEXT("{%d, %s, %s},  // %s %s ")
-	//				, DependencyRecord.ObjectRefIndex
-	//				, *BlueprintDependencyTypeToString(DependencyRecord.StructDependency)
-	//				, *BlueprintDependencyTypeToString(DependencyRecord.CDODependency)
-	//				, *OptionalComment
-	//				, *LocAsset->GetFullName()));
-	//		}
-	//		else
-	//		{
-	//			Context.AddLine(FString::Printf(TEXT("{%d, %s},  // %s %s ")
-	//				, DependencyRecord.ObjectRefIndex
-	//				, *BlueprintDependencyTypeToString(DependencyRecord.StructDependency)
-	//				, *OptionalComment
-	//				, *LocAsset->GetFullName()));
-	//		}
-	//	}
+			if (SourceStruct->IsA<UClass>())
+			{
+				Context.AddLine(FString::Printf(TEXT("{%d, %s, %s},  // %s %s ")
+					, DependencyRecord.ObjectRefIndex
+					, *BlueprintDependencyTypeToString(DependencyRecord.StructDependency)
+					, *BlueprintDependencyTypeToString(DependencyRecord.CDODependency)
+					, *OptionalComment
+					, *LocAsset->GetFullName()));
+			}
+			else
+			{
+				Context.AddLine(FString::Printf(TEXT("{%d, %s},  // %s %s ")
+					, DependencyRecord.ObjectRefIndex
+					, *BlueprintDependencyTypeToString(DependencyRecord.StructDependency)
+					, *OptionalComment
+					, *LocAsset->GetFullName()));
+			}
+		}
 
-	//	if (Assets.Num())
-	//	{
-	//		Context.DecreaseIndent();
-	//		Context.AddLine(TEXT("};"));
-	//		Context.AddLine(TEXT("for(const FCompactBlueprintDependencyData& CompactData : LocCompactBlueprintDependencyData)"));
-	//		Context.AddLine(TEXT("{"));
-	//		Context.AddLine(FString::Printf(TEXT("\tAssetsToLoad.%s(FBlueprintDependencyData(F__NativeDependencies::Get(CompactData.ObjectRefIndex), CompactData));")
-	//			, bEnableBootTimeEDLOptimization ? TEXT("Add") : TEXT("AddUnique")));
-	//		Context.AddLine(TEXT("}"));
-	//	}
-	//};
+		if (Assets.Num())
+		{
+			Context.DecreaseIndent();
+			Context.AddLine(TEXT("};"));
+			Context.AddLine(TEXT("for(const FCompactBlueprintDependencyData& CompactData : LocCompactBlueprintDependencyData)"));
+			Context.AddLine(TEXT("{"));
+			Context.AddLine(FString::Printf(TEXT("\tAssetsToLoad.%s(FBlueprintDependencyData(F__NativeDependencies::Get(CompactData.ObjectRefIndex), CompactData));")
+				, bEnableBootTimeEDLOptimization ? TEXT("Add") : TEXT("AddUnique")));
+			Context.AddLine(TEXT("}"));
+		}
+	};
 
 	// 1. GATHER UDS DEFAULT VALUE DEPENDENCIES
 	{
@@ -1717,10 +1758,8 @@ void FEmitDefaultValueHelper::AddStaticFunctionsForDependencies(FEmitterLocalCon
 				AllDependenciesToHandle.Remove(LocAsset);
 			}
 		}
-		
-		// TODO @zhouminyi
-		BP_CONVERTER_DEBUG("...");
-		//AddAssetArray(AssetsToAdd);
+	
+		AddAssetArray(AssetsToAdd);
 
 		Context.DecreaseIndent();
 		Context.AddLine(TEXT("}"));
@@ -1774,14 +1813,11 @@ void FEmitDefaultValueHelper::AddStaticFunctionsForDependencies(FEmitterLocalCon
 			}
 		}
 		
-		// TODO @zhouminyi
-		BP_CONVERTER_DEBUG("...");
-		
-		//AddAssetArray(AllDependenciesToHandle.Array());
+		AddAssetArray(AllDependenciesToHandle.Array());
 		Context.DecreaseIndent();
 		Context.AddLine(TEXT("}"));
 	}
-}
+} 
 
 void FEmitDefaultValueHelper::AddRegisterHelper(FEmitterLocalContext& Context)
 {
@@ -1820,175 +1856,171 @@ void FEmitDefaultValueHelper::AddRegisterHelper(FEmitterLocalContext& Context)
 
 void FEmitDefaultValueHelper::GenerateCustomDynamicClassInitialization(FEmitterLocalContext& Context, TSharedPtr<FGatherConvertedClassDependencies> ParentDependencies)
 {
-	// TODO @zhouminyi
-	BP_CONVERTER_DEBUG("UDynamicClass was removed!");
+	UBlueprintGeneratedClass* BPGC = CastChecked<UBlueprintGeneratedClass>(Context.GetCurrentlyGeneratedClass());
+	const FString CppClassName = FEmitHelper::GetCppName(BPGC);
 
-	//UBlueprintGeneratedClass* BPGC = CastChecked<UBlueprintGeneratedClass>(Context.GetCurrentlyGeneratedClass());
-	//const FString CppClassName = FEmitHelper::GetCppName(BPGC);
+	{
+		FDisableOptimizationOnScope DisableOptimizationOnScope(*Context.DefaultTarget);
 
-	//{
-	//	FDisableOptimizationOnScope DisableOptimizationOnScope(*Context.DefaultTarget);
+		Context.AddLine(FString::Printf(TEXT("void %s::__CustomDynamicClassInitialization(UDynamicClass* InDynamicClass)"), *CppClassName));
+		Context.AddLine(TEXT("{"));
+		Context.IncreaseIndent();
+		Context.AddLine(TEXT("ensure(0 == InDynamicClass->ReferencedConvertedFields.Num());"));
+		Context.AddLine(TEXT("ensure(0 == InDynamicClass->DynamicBindingObjects.Num());"));
+		Context.AddLine(TEXT("ensure(0 == InDynamicClass->ComponentTemplates.Num());"));
+		Context.AddLine(TEXT("ensure(0 == InDynamicClass->Timelines.Num());"));
+		Context.AddLine(TEXT("ensure(0 == InDynamicClass->ComponentClassOverrides.Num());"));
+		Context.AddLine(TEXT("ensure(nullptr == InDynamicClass->AnimClassImplementation);"));
+		Context.AddLine(TEXT("InDynamicClass->AssembleReferenceTokenStream();"));
 
-	//	Context.AddLine(FString::Printf(TEXT("void %s::__CustomDynamicClassInitialization(UDynamicClass* InDynamicClass)"), *CppClassName));
-	//	Context.AddLine(TEXT("{"));
-	//	Context.IncreaseIndent();
-	//	Context.AddLine(FString::Printf(TEXT("ensure(0 == InDynamicClass->%s.Num());"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, ReferencedConvertedFields)));
-	//	Context.AddLine(FString::Printf(TEXT("ensure(0 == InDynamicClass->%s.Num());"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, MiscConvertedSubobjects)));
-	//	Context.AddLine(FString::Printf(TEXT("ensure(0 == InDynamicClass->%s.Num());"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, DynamicBindingObjects)));
-	//	Context.AddLine(FString::Printf(TEXT("ensure(0 == InDynamicClass->%s.Num());"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, ComponentTemplates)));
-	//	Context.AddLine(FString::Printf(TEXT("ensure(0 == InDynamicClass->%s.Num());"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, Timelines)));
-	//	Context.AddLine(FString::Printf(TEXT("ensure(0 == InDynamicClass->%s.Num());"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, ComponentClassOverrides)));
-	//	Context.AddLine(FString::Printf(TEXT("ensure(nullptr == InDynamicClass->%s);"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, AnimClassImplementation)));
-	//	Context.AddLine(FString::Printf(TEXT("InDynamicClass->%s();"), GET_FUNCTION_NAME_STRING_CHECKED(UDynamicClass, AssembleReferenceTokenStream)));
+		Context.CurrentCodeType = FEmitterLocalContext::EGeneratedCodeType::SubobjectsOfClass;
+		Context.ResetPropertiesForInaccessibleStructs();
 
-	//	Context.CurrentCodeType = FEmitterLocalContext::EGeneratedCodeType::SubobjectsOfClass;
-	//	Context.ResetPropertiesForInaccessibleStructs();
+		if (Context.Dependencies.ConvertedEnum.Num())
+		{
+			Context.AddLine(TEXT("// List of all referenced converted enums"));
+		}
+		for (UUserDefinedEnum* LocEnum : Context.Dependencies.ConvertedEnum)
+		{
+			Context.AddLine(FString::Printf(TEXT("InDynamicClass->ReferencedConvertedFields.Add(LoadObject<UEnum>(nullptr, TEXT(\"%s\")));"),*(LocEnum->GetPathName().ReplaceCharWithEscapedChar())));
+			Context.EnumsInCurrentClass.Add(LocEnum);
+		}
 
-	//	if (Context.Dependencies.ConvertedEnum.Num())
-	//	{
-	//		Context.AddLine(TEXT("// List of all referenced converted enums"));
-	//	}
-	//	for (UUserDefinedEnum* LocEnum : Context.Dependencies.ConvertedEnum)
-	//	{
-	//		Context.AddLine(FString::Printf(TEXT("InDynamicClass->%s.Add(LoadObject<UEnum>(nullptr, TEXT(\"%s\")));"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, ReferencedConvertedFields), *(LocEnum->GetPathName().ReplaceCharWithEscapedChar())));
-	//		Context.EnumsInCurrentClass.Add(LocEnum);
-	//	}
+		if (Context.Dependencies.ConvertedClasses.Num())
+		{
+			Context.AddLine(TEXT("// List of all referenced converted classes"));
+		}
+		for (UBlueprintGeneratedClass* LocStruct : Context.Dependencies.ConvertedClasses)
+		{
+			UClass* ClassToLoad = Context.Dependencies.FindOriginalClass(LocStruct);
+			if (ensure(ClassToLoad))
+			{
+				if (ParentDependencies.IsValid() && ParentDependencies->ConvertedClasses.Contains(LocStruct))
+				{
+					continue;
+				}
 
-	//	if (Context.Dependencies.ConvertedClasses.Num())
-	//	{
-	//		Context.AddLine(TEXT("// List of all referenced converted classes"));
-	//	}
-	//	for (UBlueprintGeneratedClass* LocStruct : Context.Dependencies.ConvertedClasses)
-	//	{
-	//		UClass* ClassToLoad = Context.Dependencies.FindOriginalClass(LocStruct);
-	//		if (ensure(ClassToLoad))
-	//		{
-	//			if (ParentDependencies.IsValid() && ParentDependencies->ConvertedClasses.Contains(LocStruct))
-	//			{
-	//				continue;
-	//			}
+				FString ClassConstructor;
+				if (ClassToLoad->HasAnyClassFlags(CLASS_Interface))
+				{
+					const FString ClassZConstructor = FDependenciesHelper::GenerateZConstructor(ClassToLoad);
+					Context.AddLine(FString::Printf(TEXT("extern UClass* %s;"), *ClassZConstructor));
+					ClassConstructor = ClassZConstructor;
+				}
+				else
+				{
+					ClassConstructor = FString::Printf(TEXT("%s::StaticClass()"), *FEmitHelper::GetCppName(ClassToLoad));
+				}
+				Context.AddLine(FString::Printf(TEXT("InDynamicClass->ReferencedConvertedFields.Add(%s);"), *ClassConstructor));
 
-	//			FString ClassConstructor;
-	//			if (ClassToLoad->HasAnyClassFlags(CLASS_Interface))
-	//			{
-	//				const FString ClassZConstructor = FDependenciesHelper::GenerateZConstructor(ClassToLoad);
-	//				Context.AddLine(FString::Printf(TEXT("extern UClass* %s;"), *ClassZConstructor));
-	//				ClassConstructor = ClassZConstructor;
-	//			}
-	//			else
-	//			{
-	//				ClassConstructor = FString::Printf(TEXT("%s::StaticClass()"), *FEmitHelper::GetCppName(ClassToLoad));
-	//			}
-	//			Context.AddLine(FString::Printf(TEXT("InDynamicClass->%s.Add(%s);"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, ReferencedConvertedFields), *ClassConstructor));
+				//Context.AddLine(FString::Printf(TEXT("InDynamicClass->ReferencedConvertedFields.Add(LoadObject<UClass>(nullptr, TEXT(\"%s\")));")
+				//	, *(ClassToLoad->GetPathName().ReplaceCharWithEscapedChar())));
+			}
+		}
 
-	//			//Context.AddLine(FString::Printf(TEXT("InDynamicClass->ReferencedConvertedFields.Add(LoadObject<UClass>(nullptr, TEXT(\"%s\")));")
-	//			//	, *(ClassToLoad->GetPathName().ReplaceCharWithEscapedChar())));
-	//		}
-	//	}
+		if (Context.Dependencies.ConvertedStructs.Num())
+		{
+			Context.AddLine(TEXT("// List of all referenced converted structures"));
+		}
+		for (UUserDefinedStruct* LocStruct : Context.Dependencies.ConvertedStructs)
+		{
+			if (ParentDependencies.IsValid() && ParentDependencies->ConvertedStructs.Contains(LocStruct))
+			{
+				continue;
+			}
+			const FString StructConstructor = FDependenciesHelper::GenerateZConstructor(LocStruct);
+			Context.AddLine(FString::Printf(TEXT("extern UScriptStruct* %s;"), *StructConstructor));
+			Context.AddLine(FString::Printf(TEXT("InDynamicClass->ReferencedConvertedFields.Add(%s);"), *StructConstructor));
+		}
 
-	//	if (Context.Dependencies.ConvertedStructs.Num())
-	//	{
-	//		Context.AddLine(TEXT("// List of all referenced converted structures"));
-	//	}
-	//	for (UUserDefinedStruct* LocStruct : Context.Dependencies.ConvertedStructs)
-	//	{
-	//		if (ParentDependencies.IsValid() && ParentDependencies->ConvertedStructs.Contains(LocStruct))
-	//		{
-	//			continue;
-	//		}
-	//		const FString StructConstructor = FDependenciesHelper::GenerateZConstructor(LocStruct);
-	//		Context.AddLine(FString::Printf(TEXT("extern UScriptStruct* %s;"), *StructConstructor));
-	//		Context.AddLine(FString::Printf(TEXT("InDynamicClass->%s.Add(%s);"), GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, ReferencedConvertedFields), *StructConstructor));
-	//	}
+		TArray<UActorComponent*> ActorComponentTempatesOwnedByClass = BPGC->ComponentTemplates;
+		// Gather all CT from SCS and IH, the remaining ones are generated for class..
+		if (USimpleConstructionScript* SCS = BPGC->SimpleConstructionScript)
+		{
+			// >>> This code should be removed, once UE-39168 is fixed
+			//TODO: it's an ugly workaround - template from DefaultSceneRootNode is unnecessarily cooked :(
+			UActorComponent* DefaultSceneRootComponentTemplate = SCS->GetDefaultSceneRootNode() ? ToRawPtr(SCS->GetDefaultSceneRootNode()->ComponentTemplate) : nullptr;
+			if (DefaultSceneRootComponentTemplate)
+			{
+				ActorComponentTempatesOwnedByClass.Add(DefaultSceneRootComponentTemplate);
+			}
+			// <<< This code should be removed, once UE-39168 is fixed
 
-	//	TArray<UActorComponent*> ActorComponentTempatesOwnedByClass = BPGC->ComponentTemplates;
-	//	// Gather all CT from SCS and IH, the remaining ones are generated for class..
-	//	if (USimpleConstructionScript* SCS = BPGC->SimpleConstructionScript)
-	//	{
-	//		// >>> This code should be removed, once UE-39168 is fixed
-	//		//TODO: it's an ugly workaround - template from DefaultSceneRootNode is unnecessarily cooked :(
-	//		UActorComponent* DefaultSceneRootComponentTemplate = SCS->GetDefaultSceneRootNode() ? ToRawPtr(SCS->GetDefaultSceneRootNode()->ComponentTemplate) : nullptr;
-	//		if (DefaultSceneRootComponentTemplate)
-	//		{
-	//			ActorComponentTempatesOwnedByClass.Add(DefaultSceneRootComponentTemplate);
-	//		}
-	//		// <<< This code should be removed, once UE-39168 is fixed
+			for (USCS_Node* Node : SCS->GetAllNodes())
+			{
+				ActorComponentTempatesOwnedByClass.RemoveSwap(Node->ComponentTemplate);
+			}
+		}
+		if (UInheritableComponentHandler* IH = BPGC->GetInheritableComponentHandler())
+		{
+			TArray<UActorComponent*> AllTemplates;
+			IH->GetAllTemplates(AllTemplates);
+			ActorComponentTempatesOwnedByClass.RemoveAllSwap([&](UActorComponent* Component) -> bool
+			{
+				return AllTemplates.Contains(Component);
+			});
+		}
 
-	//		for (USCS_Node* Node : SCS->GetAllNodes())
-	//		{
-	//			ActorComponentTempatesOwnedByClass.RemoveSwap(Node->ComponentTemplate);
-	//		}
-	//	}
-	//	if (UInheritableComponentHandler* IH = BPGC->GetInheritableComponentHandler())
-	//	{
-	//		TArray<UActorComponent*> AllTemplates;
-	//		IH->GetAllTemplates(AllTemplates);
-	//		ActorComponentTempatesOwnedByClass.RemoveAllSwap([&](UActorComponent* Component) -> bool
-	//		{
-	//			return AllTemplates.Contains(Component);
-	//		});
-	//	}
+		Context.AddLine(TEXT("FConvertedBlueprintsDependencies::FillUsedAssetsInDynamicClass(InDynamicClass, &__StaticDependencies_DirectlyUsedAssets);"));
 
-	//	Context.AddLine(TEXT("FConvertedBlueprintsDependencies::FillUsedAssetsInDynamicClass(InDynamicClass, &__StaticDependencies_DirectlyUsedAssets);"));
+		ensure(0 == Context.MiscConvertedSubobjects.Num());
+		for (UObject* LocalTemplate : Context.TemplateFromSubobjectsOfClass)
+		{
+			HandleClassSubobject(Context, LocalTemplate, FEmitterLocalContext::EClassSubobjectList::MiscConvertedSubobjects, true, true, true);
+		}
 
-	//	ensure(0 == Context.MiscConvertedSubobjects.Num());
-	//	for (UObject* LocalTemplate : Context.TemplateFromSubobjectsOfClass)
-	//	{
-	//		HandleClassSubobject(Context, LocalTemplate, FEmitterLocalContext::EClassSubobjectList::MiscConvertedSubobjects, true, true, true);
-	//	}
+		auto CreateAndInitializeClassSubobjects = [&](bool bCreate, bool bInitialize)
+		{
+			for (UActorComponent* ComponentTemplate : ActorComponentTempatesOwnedByClass)
+			{
+				if (ComponentTemplate)
+				{
+					HandleClassSubobject(Context, ComponentTemplate, FEmitterLocalContext::EClassSubobjectList::ComponentTemplates, bCreate, bInitialize);
+				}
+			}
 
-	//	auto CreateAndInitializeClassSubobjects = [&](bool bCreate, bool bInitialize)
-	//	{
-	//		for (UActorComponent* ComponentTemplate : ActorComponentTempatesOwnedByClass)
-	//		{
-	//			if (ComponentTemplate)
-	//			{
-	//				HandleClassSubobject(Context, ComponentTemplate, FEmitterLocalContext::EClassSubobjectList::ComponentTemplates, bCreate, bInitialize);
-	//			}
-	//		}
+			for (UTimelineTemplate* TimelineTemplate : BPGC->Timelines)
+			{
+				if (TimelineTemplate)
+				{
+					HandleClassSubobject(Context, TimelineTemplate, FEmitterLocalContext::EClassSubobjectList::Timelines, bCreate, bInitialize);
+				}
+			}
 
-	//		for (UTimelineTemplate* TimelineTemplate : BPGC->Timelines)
-	//		{
-	//			if (TimelineTemplate)
-	//			{
-	//				HandleClassSubobject(Context, TimelineTemplate, FEmitterLocalContext::EClassSubobjectList::Timelines, bCreate, bInitialize);
-	//			}
-	//		}
+			for (UDynamicBlueprintBinding* DynamicBindingObject : BPGC->DynamicBindingObjects)
+			{
+				if (DynamicBindingObject)
+				{
+					HandleClassSubobject(Context, DynamicBindingObject, FEmitterLocalContext::EClassSubobjectList::DynamicBindingObjects, bCreate, bInitialize);
+				}
+			}
+			FBackendHelperUMG::CreateClassSubobjects(Context, bCreate, bInitialize);
+		};
+		CreateAndInitializeClassSubobjects(true, false);
+		CreateAndInitializeClassSubobjects(false, true);
 
-	//		for (UDynamicBlueprintBinding* DynamicBindingObject : BPGC->DynamicBindingObjects)
-	//		{
-	//			if (DynamicBindingObject)
-	//			{
-	//				HandleClassSubobject(Context, DynamicBindingObject, FEmitterLocalContext::EClassSubobjectList::DynamicBindingObjects, bCreate, bInitialize);
-	//			}
-	//		}
-	//		FBackendHelperUMG::CreateClassSubobjects(Context, bCreate, bInitialize);
-	//	};
-	//	CreateAndInitializeClassSubobjects(true, false);
-	//	CreateAndInitializeClassSubobjects(false, true);
+		for (const FBPComponentClassOverride& Override : BPGC->ComponentClassOverrides)
+		{
+			if (Override.ComponentClass)
+			{
+				Context.AddLine(FString::Printf(TEXT("InDynamicClass->ComponentClassOverrides.Emplace(MakeTuple(FName(\"%s\"), FindObject<UClass>(ANY_PACKAGE,TEXT(\"%s\"))));"), *Override.ComponentName.ToString(), *Override.ComponentClass->GetPathName()));
+			}
+			else
+			{
+				Context.AddLine(FString::Printf(TEXT("InDynamicClass->ComponentClassOverrides.Emplace(MakeTuple(FName(\"%s\"), nullptr));"), *Override.ComponentName.ToString()));
+			}
+		}
 
-	//	for (const FBPComponentClassOverride& Override : BPGC->ComponentClassOverrides)
-	//	{
-	//		if (Override.ComponentClass)
-	//		{
-	//			Context.AddLine(FString::Printf(TEXT("InDynamicClass->ComponentClassOverrides.Emplace(MakeTuple(FName(\"%s\"), FindObject<UClass>(ANY_PACKAGE,TEXT(\"%s\"))));"), *Override.ComponentName.ToString(), *Override.ComponentClass->GetPathName()));
-	//		}
-	//		else
-	//		{
-	//			Context.AddLine(FString::Printf(TEXT("InDynamicClass->ComponentClassOverrides.Emplace(MakeTuple(FName(\"%s\"), nullptr));"), *Override.ComponentName.ToString()));
-	//		}
-	//	}
+		FBackendHelperAnim::CreateAnimClassData(Context);
 
-	//	FBackendHelperAnim::CreateAnimClassData(Context);
+		Context.DecreaseIndent();
+		Context.AddLine(TEXT("}"));
+	}
 
-	//	Context.DecreaseIndent();
-	//	Context.AddLine(TEXT("}"));
-	//}
+	Context.CurrentCodeType = FEmitterLocalContext::EGeneratedCodeType::Regular;
+	Context.ResetPropertiesForInaccessibleStructs();
 
-	//Context.CurrentCodeType = FEmitterLocalContext::EGeneratedCodeType::Regular;
-	//Context.ResetPropertiesForInaccessibleStructs();
-
-	//FBackendHelperUMG::EmitWidgetInitializationFunctions(Context);
+	FBackendHelperUMG::EmitWidgetInitializationFunctions(Context);
 }
 
 void FEmitDefaultValueHelper::GenerateConstructor(FEmitterLocalContext& Context)
@@ -2139,39 +2171,36 @@ void FEmitDefaultValueHelper::GenerateConstructor(FEmitterLocalContext& Context)
 				}
 			}
 			
-			// TODO @zhouminyi
-			BP_CONVERTER_DEBUG("Something is wrong with TFieldRange.");
-			
-			//// Collect all anim node properties
-			//for (const FProperty* Property : TFieldRange<const FProperty>(BPGC))
-			//{
-			//	if (!HandledProperties.Contains(Property))
-			//	{
-			//		if(FBackendHelperAnim::ShouldAddAnimNodeInitializationFunctionCall(Context, Property))
-			//		{
-			//			AnimNodeProperties.Add(Property);
-			//		}
-			//	}
-			//}
+			// Collect all anim node properties
+			for (const FProperty* Property : TFieldRange<const FProperty>(BPGC))
+			{
+				if (!HandledProperties.Contains(Property))
+				{
+					if(FBackendHelperAnim::ShouldAddAnimNodeInitializationFunctionCall(Context, Property))
+					{
+						AnimNodeProperties.Add(Property);
+					}
+				}
+			}
 	
-			//// Emit call to anim node init if necessary
-			//if(AnimNodeProperties.Num())
-			//{
-			//	FBackendHelperAnim::AddAllAnimNodesInitializationFunctionCall(Context);
-			//}
+			// Emit call to anim node init if necessary
+			if(AnimNodeProperties.Num())
+			{
+				FBackendHelperAnim::AddAllAnimNodesInitializationFunctionCall(Context);
+			}
 
 			// Generate ctor init code for generated Blueprint class property values that may differ from parent class defaults (or that otherwise belong to the generated Blueprint class).
-			//for (const FProperty* Property : TFieldRange<const FProperty>(BPGC))
-			//{
-			//	if (!HandledProperties.Contains(Property))
-			//	{
-			//		//if(!FBackendHelperAnim::ShouldAddAnimNodeInitializationFunctionCall(Context, Property))
-			//		//{
-			//		//	const bool bNewProperty = Property->GetOwnerStruct() == BPGC;
-			//		//	OuterGenerate(Context, Property, TEXT(""), reinterpret_cast<const uint8*>(CDO), bNewProperty ? nullptr : reinterpret_cast<const uint8*>(ParentCDO), EPropertyAccessOperator::None, EPropertyGenerationControlFlags::AllowProtected);
-			//		//}
-			//	}
-			//}
+			for (const FProperty* Property : TFieldRange<const FProperty>(BPGC))
+			{
+				if (!HandledProperties.Contains(Property))
+				{
+					if(!FBackendHelperAnim::ShouldAddAnimNodeInitializationFunctionCall(Context, Property))
+					{
+						const bool bNewProperty = Property->GetOwnerStruct() == BPGC;
+						OuterGenerate(Context, Property, TEXT(""), reinterpret_cast<const uint8*>(CDO), bNewProperty ? nullptr : reinterpret_cast<const uint8*>(ParentCDO), EPropertyAccessOperator::None, EPropertyGenerationControlFlags::AllowProtected);
+					}
+				}
+			}
 		}
 		Context.DecreaseIndent();
 		Context.AddLine(TEXT("}"));
@@ -2181,23 +2210,20 @@ void FEmitDefaultValueHelper::GenerateConstructor(FEmitterLocalContext& Context)
 	Context.CurrentCodeType = FEmitterLocalContext::EGeneratedCodeType::Regular;
 	Context.ResetPropertiesForInaccessibleStructs();
 
-	// TODO @zhouminyi
-	BP_CONVERTER_DEBUG("Something is wrong with TFieldRange.");
-	
-	//// Now output any anim node init functions
-	//if(AnimNodeProperties.Num())
-	//{
-	//	FBackendHelperAnim::AddAllAnimNodesInitializationFunction(Context, CppClassName, AnimNodeProperties);
+	// Now output any anim node init functions
+	if(AnimNodeProperties.Num())
+	{
+		FBackendHelperAnim::AddAllAnimNodesInitializationFunction(Context, CppClassName, AnimNodeProperties);
 
-	//	// Add any anim node properties as their own functions now
-	//	for(const FProperty* AnimNodeProperty : AnimNodeProperties)
-	//	{
-	//		const bool bNewProperty = AnimNodeProperty->GetOwnerStruct() == BPGC;
-	//		FBackendHelperAnim::AddAnimNodeInitializationFunction(Context, CppClassName, AnimNodeProperty, bNewProperty, CDO, ParentCDO);
+		// Add any anim node properties as their own functions now
+		for(const FProperty* AnimNodeProperty : AnimNodeProperties)
+		{
+			const bool bNewProperty = AnimNodeProperty->GetOwnerStruct() == BPGC;
+			FBackendHelperAnim::AddAnimNodeInitializationFunction(Context, CppClassName, AnimNodeProperty, bNewProperty, CDO, ParentCDO);
 
-	//		Context.ResetPropertiesForInaccessibleStructs();
-	//	}
-	//}
+			Context.ResetPropertiesForInaccessibleStructs();
+		}
+	}
 
 	Context.ResetPropertiesForInaccessibleStructs();
 	Context.AddLine(FString::Printf(TEXT("void %s::%s(FObjectInstancingGraph* OuterInstanceGraph)"), *CppClassName, GET_FUNCTION_NAME_STRING_CHECKED(UObject, PostLoadSubobjects)));

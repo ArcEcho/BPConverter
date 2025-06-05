@@ -147,9 +147,6 @@ public:
 
 	static const TCHAR* ClassSubobjectListName(EClassSubobjectList ListType)
 	{
-		// TODO @zhouminyi
-		BP_CONVERTER_DEBUG("UDynamicClass was removed!");
-		
 		//if (ListType == EClassSubobjectList::ComponentTemplates)
 		//{
 		//	return GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, ComponentTemplates);
@@ -163,8 +160,25 @@ public:
 		//	return GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, DynamicBindingObjects);
 		//}
 		//return GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, MiscConvertedSubobjects);
+		
+		// @zhouminyi Need more consideration about UDynamicClass.
+		// UDynmaicClass has been removed since https://github.com/EpicGames/UnrealEngine/commit/d0c504f34e98aa01484d52cf6cc212648519a7d9
+		// So just return member name without executing the statements like GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, ComponentTemplates).
 
-		return TEXT("None");
+		if (ListType == EClassSubobjectList::ComponentTemplates)
+		{
+			return TEXT("ComponentTemplates");
+		}
+		if (ListType == EClassSubobjectList::Timelines)
+		{
+			return TEXT("Timelines");
+		}
+		if (ListType == EClassSubobjectList::DynamicBindingObjects)
+		{
+			return TEXT("DynamicBindingObjects");
+		}
+
+		return TEXT("MiscConvertedSubobjects");
 	}
 
 	void RegisterClassSubobject(UObject* Object, EClassSubobjectList ListType)
@@ -422,17 +436,16 @@ struct FBackendHelperUMG
 	static bool IsTInlineStruct(UScriptStruct* OuterStruct);
 };
 
-// TODO @zhouminyi
-//struct FBackendHelperAnim
-//{
-//	static void AddHeaders(FEmitterLocalContext& EmitterContext);
-//	static void CreateAnimClassData(FEmitterLocalContext& Context);
-//	static bool ShouldAddAnimNodeInitializationFunctionCall(FEmitterLocalContext& Context, const FProperty* InProperty);
-//	static void AddAllAnimNodesInitializationFunction(FEmitterLocalContext& Context, const FString& InCppClassName, const TArray<const FProperty*>& InAnimProperties);
-//	static void AddAllAnimNodesInitializationFunctionCall(FEmitterLocalContext& Context);
-//	static void AddAnimNodeInitializationFunctionCall(FEmitterLocalContext& Context, const FProperty* InProperty);
-//	static void AddAnimNodeInitializationFunction(FEmitterLocalContext& Context, const FString& InCppClassName, const FProperty* InProperty, bool bInNewProperty, UObject* InCDO, UObject* InParentCDO);
-//};
+struct FBackendHelperAnim
+{
+	static void AddHeaders(FEmitterLocalContext& EmitterContext);
+	static void CreateAnimClassData(FEmitterLocalContext& Context);
+	static bool ShouldAddAnimNodeInitializationFunctionCall(FEmitterLocalContext& Context, const FProperty* InProperty);
+	static void AddAllAnimNodesInitializationFunction(FEmitterLocalContext& Context, const FString& InCppClassName, const TArray<const FProperty*>& InAnimProperties);
+	static void AddAllAnimNodesInitializationFunctionCall(FEmitterLocalContext& Context);
+	static void AddAnimNodeInitializationFunctionCall(FEmitterLocalContext& Context, const FProperty* InProperty);
+	static void AddAnimNodeInitializationFunction(FEmitterLocalContext& Context, const FString& InCppClassName, const FProperty* InProperty, bool bInNewProperty, UObject* InCDO, UObject* InParentCDO);
+};
 
 /** this struct helps generate a static function that initializes Static Searchable Values. */
 struct FBackendHelperStaticSearchableValues

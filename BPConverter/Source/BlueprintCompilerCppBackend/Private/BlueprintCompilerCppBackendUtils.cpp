@@ -316,16 +316,14 @@ FString FEmitterLocalContext::FindGloballyMappedObject(const UObject* Object, co
 
 			if (INDEX_NONE != AssetIndex)
 			{
-				// TODO @zhouminyi
-				BP_CONVERTER_DEBUG("UDynamicClass was removed!");
+				// @zhouminyi Need more consideration about UDynamicClass.
+				// UDynmaicClass has been removed since https://github.com/EpicGames/UnrealEngine/commit/d0c504f34e98aa01484d52cf6cc212648519a7d9
+				// So just return member name without executing the statements like GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, UsedAssets).
 				
-				//return FString::Printf(TEXT("CastChecked<%s>(CastChecked<UDynamicClass>(%s::StaticClass())->%s[%d], ECastCheckedType::NullAllowed)")
-				//	, *ClassString()
-				//	, *FEmitHelper::GetCppName(ActualClass)
-				//	, GET_MEMBER_NAME_STRING_CHECKED(UDynamicClass, UsedAssets)
-				//	, AssetIndex);
-
-				return FString(TEXT("None"));
+				return FString::Printf(TEXT("CastChecked<%s>(CastChecked<UDynamicClass>(%s::StaticClass())->UsedAssets[%d], ECastCheckedType::NullAllowed)")
+					, *ClassString()
+					, *FEmitHelper::GetCppName(ActualClass)
+					, AssetIndex);
 			}
 		}
 
@@ -363,11 +361,11 @@ FString FEmitterLocalContext::ExportTextItem(const FProperty* Property, const vo
 		return FString::Printf(TEXT("%s()"), *TypeText);
 	}
 	FString ValueStr;
-
-	// TODO @zhouminyi
-	BP_CONVERTER_DEBUG("FProperty::ExportTextItem was removed!");
 	
-	//Property->ExportTextItem(ValueStr, PropertyValue, PropertyValue, nullptr, EPropertyPortFlags::PPF_ExportCpp);
+	// //Property->ExportTextItem(ValueStr, PropertyValue, PropertyValue, nullptr, EPropertyPortFlags::PPF_ExportCpp);
+	
+	// Use ExportTextItem_Direct instead of ExportTextItem, and set PropertyPortFlags to PPF_None	
+	Property->ExportTextItem_Direct(ValueStr, PropertyValue, PropertyValue, nullptr, EPropertyPortFlags::PPF_None);
 
 	if (Property->IsA<FIntProperty>())
 	{
@@ -1100,29 +1098,26 @@ void FEmitHelper::EmitLifetimeReplicatedPropsImpl(FEmitterLocalContext& EmitterC
 	FString CppClassName = FEmitHelper::GetCppName(SourceClass);
 	bool bFunctionInitilzed = false;
 
-	// TODO @zhouminyi
-	BP_CONVERTER_DEBUG("Something is wrong with TFieldIterator.");
-	
-	//for (TFieldIterator<FProperty> It(SourceClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
-	//{
-	//	if ((It->PropertyFlags & CPF_Net) != 0)
-	//	{
-	//		if (!bFunctionInitilzed)
-	//		{
-	//			EmitterContext.AddLine(FString::Printf(TEXT("void %s::%s(TArray< FLifetimeProperty > & OutLifetimeProps) const"), *CppClassName, GET_FUNCTION_NAME_STRING_CHECKED(UActorComponent, GetLifetimeReplicatedProps)));
-	//			EmitterContext.AddLine(TEXT("{"));
-	//			EmitterContext.IncreaseIndent();
-	//			EmitterContext.AddLine(FString::Printf(TEXT("Super::%s(OutLifetimeProps);"), GET_FUNCTION_NAME_STRING_CHECKED(UActorComponent, GetLifetimeReplicatedProps)));
-	//			bFunctionInitilzed = true;
-	//		}
-	//		EmitterContext.AddLine(FString::Printf(TEXT("DOREPLIFETIME_DIFFNAMES(%s, %s, FName(TEXT(\"%s\")));"), *CppClassName, *FEmitHelper::GetCppName(*It), *(It->GetName())));
-	//	}
-	//}
-	//if (bFunctionInitilzed)
-	//{
-	//	EmitterContext.DecreaseIndent();
-	//	EmitterContext.AddLine(TEXT("}"));
-	//}
+	for (TFieldIterator<FProperty> It(SourceClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+	{
+		if ((It->PropertyFlags & CPF_Net) != 0)
+		{
+			if (!bFunctionInitilzed)
+			{
+				EmitterContext.AddLine(FString::Printf(TEXT("void %s::%s(TArray< FLifetimeProperty > & OutLifetimeProps) const"), *CppClassName, GET_FUNCTION_NAME_STRING_CHECKED(UActorComponent, GetLifetimeReplicatedProps)));
+				EmitterContext.AddLine(TEXT("{"));
+				EmitterContext.IncreaseIndent();
+				EmitterContext.AddLine(FString::Printf(TEXT("Super::%s(OutLifetimeProps);"), GET_FUNCTION_NAME_STRING_CHECKED(UActorComponent, GetLifetimeReplicatedProps)));
+				bFunctionInitilzed = true;
+			}
+			EmitterContext.AddLine(FString::Printf(TEXT("DOREPLIFETIME_DIFFNAMES(%s, %s, FName(TEXT(\"%s\")));"), *CppClassName, *FEmitHelper::GetCppName(*It), *(It->GetName())));
+		}
+	}
+	if (bFunctionInitilzed)
+	{
+		EmitterContext.DecreaseIndent();
+		EmitterContext.AddLine(TEXT("}"));
+	}
 }
 
 FString FEmitHelper::FloatToString(float Value)
@@ -1157,6 +1152,169 @@ FString FEmitHelper::DoubleToString(double Value)
 		return TEXT("/*The original value was NaN!*/ 0.0");
 	}
 	return FString::Printf(TEXT("%lf"), Value);
+}
+
+// @zhouminyi
+// Copy these static funtions from UE4.27 to here.
+#include "Misc/AsciiSet.h"
+FString FStrProperty_ExportCppHardcodedText(const FString& InSource, const FString& Indent)
+{
+	constexpr FAsciiSet EscapableCharacters("\\\"\n\r\t");
+
+	auto EstimateExportedStringLength = [&EscapableCharacters](const UTF16CHAR* InStr)
+		{
+			int32 EstimatedLen = 0;
+			while (const UTF16CHAR Char = *InStr++)
+			{
+				if (EscapableCharacters.Contains(Char))
+				{
+					// Exported escaped
+					EstimatedLen += 2;
+				}
+				else if (Char > 0x7f)
+				{
+					// Exported as a UTF-16 sequence
+					EstimatedLen += 4;
+				}
+				else
+				{
+					// Exported verbatim
+					EstimatedLen += 1;
+				}
+			}
+			return EstimatedLen;
+		};
+
+	const int32 PreferredLineSize = 256;
+	const int32 LinesPerString = 16;
+
+	// Note: This is a no-op on platforms that are using a 16-bit TCHAR
+	FTCHARToUTF16 UTF16SourceString(*InSource, InSource.Len() + 1); // include the null terminator
+
+	const bool bUseSubStrings = EstimateExportedStringLength(UTF16SourceString.Get()) > (LinesPerString * PreferredLineSize);
+	int32 LineNum = 0;
+
+	TStringBuilder<1024> Result;
+
+	if (bUseSubStrings)
+	{
+		Result << TEXT("*(FString(");
+	}
+
+	const UTF16CHAR* SourceBegin = UTF16SourceString.Get();
+	const UTF16CHAR* SourceIt = SourceBegin;
+	do
+	{
+		if (SourceIt > SourceBegin)
+		{
+			Result << TEXT("\n");
+			Result << Indent;
+		}
+
+		++LineNum;
+		if (bUseSubStrings && (LineNum % LinesPerString) == 0)
+		{
+			Result << TEXT(") + FString(");
+		}
+
+		Result << TEXT("TEXT(\"");
+		{
+			int32 ResultStartLen = Result.Len();
+			while (*SourceIt && (Result.Len() - ResultStartLen) < PreferredLineSize)
+			{
+				if (EscapableCharacters.Contains(*SourceIt))
+				{
+					const TCHAR CharToEscape = (TCHAR)*SourceIt++;
+
+					Result << TEXT('\\');
+					switch (CharToEscape)
+					{
+					case TEXT('\n'):
+						Result << TEXT('n');
+						break;
+					case TEXT('\r'):
+						Result << TEXT('r');
+						break;
+					case TEXT('\t'):
+						Result << TEXT('t');
+						break;
+					default:
+						Result << CharToEscape;
+						break;
+					}
+				}
+				else if (*SourceIt > 0x7f)
+				{
+					// If this character is part of a surrogate pair, then combine them and write them as a single UTF-32 sequence
+					// Otherwise just write out the character as a UTF-16 sequence
+					if (StringConv::IsHighSurrogate(*SourceIt) && StringConv::IsLowSurrogate(*(SourceIt + 1)))
+					{
+						const UTF32CHAR Codepoint = StringConv::EncodeSurrogate(*SourceIt, *(SourceIt + 1));
+						Result.Appendf(TEXT("\\U%08x"), Codepoint);
+						SourceIt += 2;
+					}
+					else
+					{
+						Result.Appendf(TEXT("\\u%04x"), *SourceIt++);
+					}
+				}
+				else
+				{
+					Result << (TCHAR)*SourceIt++;
+				}
+			}
+		}
+		Result << TEXT("\")");
+	} while (*SourceIt);
+
+	if (bUseSubStrings)
+	{
+		Result << TEXT("))");
+	}
+
+	return Result.ToString();
+}
+
+FString FTextProperty_GenerateCppCodeForTextValue(const FText& InValue, const FString& Indent)
+{
+	FString CppCode;
+
+	if (InValue.IsEmpty())
+	{
+		CppCode += TEXT("FText::GetEmpty()");
+	}
+	else if (InValue.IsCultureInvariant())
+	{
+		const FString& StringValue = FTextInspector::GetDisplayString(InValue);
+
+		// Produces FText::AsCultureInvariant(TEXT("..."))
+		CppCode += TEXT("FText::AsCultureInvariant(\n");
+		CppCode += FStrProperty_ExportCppHardcodedText(StringValue, Indent + TEXT("\t\t"));
+		CppCode += TEXT("\t)");
+	}
+	else
+	{
+		FString ExportedText;
+		FTextStringHelper::WriteToBuffer(ExportedText, InValue);
+
+		if (FTextStringHelper::IsComplexText(*ExportedText))
+		{
+			// Produces FTextStringHelper::CreateFromBuffer(TEXT("..."))
+			CppCode += TEXT("FTextStringHelper::CreateFromBuffer(\n");
+			CppCode += FStrProperty_ExportCppHardcodedText(ExportedText, Indent + TEXT("\t\t"));
+			CppCode += Indent;
+			CppCode += TEXT("\t)");
+		}
+		else
+		{
+			// Produces FText::FromString(TEXT("..."))
+			CppCode += TEXT("FText::FromString(\n");
+			CppCode += FStrProperty_ExportCppHardcodedText(ExportedText, Indent + TEXT("\t\t"));
+			CppCode += TEXT("\t)");
+		}
+	}
+
+	return CppCode;
 }
 
 FString FEmitHelper::LiteralTerm(FEmitterLocalContext& EmitterContext, const FLiteralTermParams& Params)
@@ -1237,7 +1395,7 @@ FString FEmitHelper::LiteralTerm(FEmitterLocalContext& EmitterContext, const FLi
 			FScriptSet ScriptSet;
 			if (!CustomValue.IsEmpty())	// unlike FArrayProperty, FSetProperty::ImportText() doesn't allow empty values to pass, so we check for that here.
 			{	
-				// TODO @zhouminyi
+				// TODO @zhouminyi may use ImportText_Direct instead.
 				BP_CONVERTER_DEBUG("FSetProperty::ImportText was removed.");
 				
 				//if (!SetProperty->ImportText(*CustomValue, &ScriptSet, PPF_None, nullptr, &ImportError))
@@ -1350,21 +1508,12 @@ FString FEmitHelper::LiteralTerm(FEmitterLocalContext& EmitterContext, const FLi
 		return FString::Printf(TEXT("{%s}"), *ContainerInitializerList);
 	}
 	else if (UEdGraphSchema_K2::PC_String == Type.PinCategory)
-	{
-		// TODO @zhouminyi	
-		BP_CONVERTER_DEBUG("FStrProperty::ExportCppHardcodedText was removed.");
-		
-		//return FString::Printf(TEXT("FString(%s)"), *FStrProperty::ExportCppHardcodedText(CustomValue, EmitterContext.DefaultTarget->Indent));
-		return FString(TEXT("Please Replace the String Value here manually!"));
+	{		
+		return FString::Printf(TEXT("FString(%s)"), *FStrProperty_ExportCppHardcodedText(CustomValue, EmitterContext.DefaultTarget->Indent));
 	}
 	else if (UEdGraphSchema_K2::PC_Text == Type.PinCategory)
 	{	
-		// TODO @zhouminyi	
-		BP_CONVERTER_DEBUG("FStrProperty::GenerateCppCodeForTextValue was removed.");
-		
-		// FTextProperty::GenerateCppCodeForTextValue(Params.LiteralText, FString());
-		
-		return FString(TEXT("Please Replace the Text Value here manually!"));
+		return FTextProperty_GenerateCppCodeForTextValue(Params.LiteralText, FString());
 	}
 	else if (UEdGraphSchema_K2::PC_Float == Type.PinCategory)
 	{
@@ -1585,7 +1734,12 @@ FString FEmitHelper::LiteralTerm(FEmitterLocalContext& EmitterContext, const FLi
 		// @todo FProp: do we need support for this?
 		check(false);
 	}
-
+	else if (UEdGraphSchema_K2::PC_Real == Type.PinCategory)
+	{
+		// @zhouminyi is UEdGraphSchema_K2::PC_Real equals UEdGraphSchema_K2::PC_Double?
+		double Value = CustomValue.IsEmpty() ? 0.0f : FCString::Atod(*CustomValue);
+		return FString::Printf(TEXT("%s"), *DoubleToString(Value));
+	}
 	ensureMsgf(false, TEXT("It is not possible to express this type as a literal value!"));
 	return CustomValue;
 }
