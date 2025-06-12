@@ -16,12 +16,5 @@ public:
 	virtual void ShutdownModule() override;
 
 private:
-	void ExtendBlueprintEditor();
-
-	void OnModulesChanged(FName ModuleName, EModuleChangeReason Reason);
-
-	TSharedPtr<FExtender> BlueprintToolbarExtender;
-	FDelegateHandle BlueprintExtenderHandle;
-
-	void HandleRegisterTabsForBlueprintEditor(FWorkflowAllowedTabSet& TabFactories, FName InModeName, TSharedPtr<FBlueprintEditor> BlueprintEditor);
+	void HandleGatherBlueprintMenuExtensions(TSharedPtr<FExtender> InExtender, UBlueprint* InBlueprintObj);
 };

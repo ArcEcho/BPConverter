@@ -11,6 +11,6 @@ class UBlueprint;
 
 struct FNativeCodeGenerationTool
 {
-	BLUEPRINTNATIVECODEGEN_API static void Open(UBlueprint& Object, TSharedRef< class FBlueprintEditor> Editor);
+	BLUEPRINTNATIVECODEGEN_API static void Open(UBlueprint& Object);
 	BLUEPRINTNATIVECODEGEN_API static bool CanGenerate(const UBlueprint& Object);
 };

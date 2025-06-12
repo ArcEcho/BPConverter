@@ -357,7 +357,7 @@ public:
 	}
 };
 
-void FNativeCodeGenerationTool::Open(UBlueprint& Blueprint, TSharedRef< class FBlueprintEditor> Editor)
+void FNativeCodeGenerationTool::Open(UBlueprint& Blueprint)
 {
 	TSharedRef<FGeneratedCodeData> GeneratedCodeData(new FGeneratedCodeData(Blueprint));
 

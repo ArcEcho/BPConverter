@@ -31,7 +31,8 @@ public class BlueprintNativeCodeGen : ModuleRules
                 "Projects",
                 "Kismet",
                 "DesktopWidgets",
-                "DeveloperToolSettings"
+				"ToolMenus",
+				"UMGEditor"
             }
 		);
 

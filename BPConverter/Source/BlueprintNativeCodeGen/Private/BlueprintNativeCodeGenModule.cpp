@@ -9,6 +9,7 @@
 #include "ToolMenus.h"
 #include "Widgets/Input/SButton.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "WidgetBlueprint.h"
 
 #include "NativeCodeGenerationTool.h"
 
@@ -17,58 +18,55 @@
 void FBlueprintNativeCodeGenModule::StartupModule()
 {
 	FBlueprintEditorModule& BlueprintEditorModule = FModuleManager::LoadModuleChecked<FBlueprintEditorModule>("Kismet");
-	BlueprintEditorModule.OnRegisterTabsForEditor().AddRaw(this, &FBlueprintNativeCodeGenModule::HandleRegisterTabsForBlueprintEditor);
+	//BlueprintEditorModule.OnRegisterTabsForEditor().AddRaw(this, &FBlueprintNativeCodeGenModule::HandleRegisterTabsForBlueprintEditor);
+	BlueprintEditorModule.OnGatherBlueprintMenuExtensions().AddRaw(this, &FBlueprintNativeCodeGenModule::HandleGatherBlueprintMenuExtensions);
 }
 
 void FBlueprintNativeCodeGenModule::ShutdownModule()
 {
-
 }
 
-void FBlueprintNativeCodeGenModule::ExtendBlueprintEditor()
+void FBlueprintNativeCodeGenModule::HandleGatherBlueprintMenuExtensions(TSharedPtr<FExtender> InExtender, UBlueprint* InBlueprintObj)
 {
+	UToolMenu* Menu = nullptr;
+	UWidgetBlueprint* AsWidgetBlueprint = Cast<UWidgetBlueprint>(InBlueprintObj);
 
-}
+	// Determine the correct toolbar menu based on blueprint type
+	if (AsWidgetBlueprint != nullptr)
+	{
+		//Menu = UToolMenus::Get()->FindMenu(TEXT("AssetEditor.WidgetBlueprintEditor.ToolBar.DesignerName"));
+		Menu = UToolMenus::Get()->FindMenu(TEXT("AssetEditor.WidgetBlueprintEditor.ToolBar"));
+	}
+	else
+	{
+		//Menu = UToolMenus::Get()->FindMenu(TEXT("AssetEditor.BlueprintEditor.ToolBar.GraphName"));
+		Menu = UToolMenus::Get()->FindMenu(TEXT("AssetEditor.BlueprintEditor.ToolBar"));
+	}
 
-void FBlueprintNativeCodeGenModule::OnModulesChanged(FName ModuleName, EModuleChangeReason Reason)
-{
+	// Exit if the target menu is not found
+	if (Menu == nullptr)
+	{
+		return;
+	}
 
-}
+	// Add a new section or retrieve an existing one
+	FToolMenuSection& Section = Menu->FindOrAddSection(NAME_None);
 
-void FBlueprintNativeCodeGenModule::HandleRegisterTabsForBlueprintEditor(FWorkflowAllowedTabSet& TabFactories, FName InModeName, TSharedPtr<FBlueprintEditor> BlueprintEditor)
-{
-	BlueprintToolbarExtender = MakeShareable(new FExtender());
-	BlueprintToolbarExtender->AddToolBarExtension(
-		"Compile", 
-		EExtensionHook::After,
-		nullptr,
-		FToolBarExtensionDelegate::CreateLambda(
-			[BlueprintEditor](FToolBarBuilder& ToolbarBuilder)
-			{
-				ToolbarBuilder.AddToolBarButton(
-					FUIAction(
-						FExecuteAction::CreateLambda([BlueprintEditor]()
-							{
-								if (BlueprintEditor.IsValid())
-								{
-									UBlueprint* BlueprintObject = BlueprintEditor->GetBlueprintObj();
-									FString BlueprintName;
-									BlueprintObject->GetName(BlueprintName);
-
-									FNativeCodeGenerationTool::Open(*BlueprintObject, BlueprintEditor.ToSharedRef());
-								}
-							}
-						)
-					),
-					NAME_None,
-					LOCTEXT("MyButton_Label", "ToCPP"),
-					LOCTEXT("MyButton_ToolTip", "To CPP"),
-					FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.GameSettings")
-				);
-			})
-	);
-
-	BlueprintEditor->AddToolbarExtender(BlueprintToolbarExtender);
+	// Add a toolbar button to the section
+	Section.AddEntry(FToolMenuEntry::InitToolBarButton(
+		"Style Button", // Unique name for the button entry
+		FUIAction(
+			FExecuteAction::CreateLambda([InBlueprintObj]()
+				{
+					// Action to execute when the button is clicked
+					FNativeCodeGenerationTool::Open(*InBlueprintObj);
+				}
+			)
+		),
+		FText::FromString("ToCPP"),     // Button label
+		FText::FromString("To CPP"),    // Tooltip text
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.GameSettings") // Button icon
+	));
 }
 
 #undef LOCTEXT_NAMESPACE
