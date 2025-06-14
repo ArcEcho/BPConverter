@@ -34,6 +34,8 @@
 
 #include "StructUtils/UserDefinedStruct.h"
 
+#include "HAL/PlatformProcess.h"
+
 #define LOCTEXT_NAMESPACE "NativeCodeGenerationTool"
 
 //
@@ -114,14 +116,13 @@ struct FGeneratedCodeData
 
 	static FString DefaultHeaderDir()
 	{
-		auto DefaultSourceDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectIntermediateDir());
-		return FPaths::Combine(*DefaultSourceDir, TEXT("NativizationTest"), TEXT("Public"));
+		return DefaultSourceDir();
 	}
 
 	static FString DefaultSourceDir()
 	{
-		auto DefaultSourceDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectIntermediateDir());
-		return FPaths::Combine(*DefaultSourceDir, TEXT("NativizationTest"), TEXT("Private"));
+		auto DefaultSourceDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir());
+		return FPaths::Combine(*DefaultSourceDir, TEXT("GeneratedCPP"));
 	}
 
 	FString HeaderFileName() const
@@ -195,7 +196,9 @@ struct FGeneratedCodeData
 		if (bSuccess && CreatedFiles.Num() > 0)
 		{
 			// assume the last element is the target cpp file
-			FSourceCodeNavigation::OpenSourceFile(CreatedFiles.Last());
+			//FSourceCodeNavigation::OpenSourceFile(CreatedFiles.Last());
+
+			FPlatformProcess::ExploreFolder(*FGeneratedCodeData::DefaultHeaderDir());
 		}
 		return bSuccess;
 	}
