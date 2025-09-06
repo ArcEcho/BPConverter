@@ -383,6 +383,151 @@ FString FEmitterLocalContext::ExportTextItem(const FProperty* Property, const vo
 	return ValueStr;
 }
 
+// FProperty::ExportCppDeclaration has been removed in UE5.6.1
+PRAGMA_DISABLE_DEPRECATION_WARNINGS
+void FProperty_ExportCppDeclaration(const FProperty* InProperty, FOutputDevice& Out, EExportedDeclaration::Type DeclarationType, const TCHAR* ArrayDimOverride, uint32 AdditionalExportCPPFlags
+	, bool bSkipParameterName, const FString* ActualCppType, const FString* ActualExtendedType, const FString* ActualParameterName)
+{
+	const bool bIsParameter = (DeclarationType == EExportedDeclaration::Parameter) || (DeclarationType == EExportedDeclaration::MacroParameter);
+	const bool bIsInterfaceProp = CastField<const FInterfaceProperty>(InProperty) != nullptr;
+
+	// export the property type text (e.g. FString; int32; TArray, etc.)
+	FString ExtendedTypeText;
+	const uint32 ExportCPPFlags = AdditionalExportCPPFlags | (bIsParameter ? CPPF_ArgumentOrReturnValue : 0);
+	FString TypeText;
+	if (ActualCppType)
+	{
+		TypeText = *ActualCppType;
+	}
+	else
+	{
+		TypeText = InProperty->GetCPPType(&ExtendedTypeText, ExportCPPFlags);
+	}
+
+	if (ActualExtendedType)
+	{
+		ExtendedTypeText = *ActualExtendedType;
+	}
+
+	const bool bCanHaveRef = 0 == (AdditionalExportCPPFlags & CPPF_NoRef);
+	const bool bCanHaveConst = 0 == (AdditionalExportCPPFlags & CPPF_NoConst);
+	if (!CastField<const FBoolProperty>(InProperty) && bCanHaveConst) // can't have const bitfields because then we cannot determine their offset and mask from the compiler
+	{
+		const FObjectProperty* ObjectProp = CastField<FObjectProperty>(InProperty);
+
+		// export 'const' for parameters
+		const bool bIsConstParam   = bIsParameter && (InProperty->HasAnyPropertyFlags(CPF_ConstParm) || (bIsInterfaceProp && !InProperty->HasAllPropertyFlags(CPF_OutParm)));
+		const bool bIsOnConstClass = ObjectProp && ObjectProp->PropertyClass && ObjectProp->PropertyClass->HasAnyClassFlags(CLASS_Const);
+		const bool bShouldHaveRef = bCanHaveRef && InProperty->HasAnyPropertyFlags(CPF_OutParm | CPF_ReferenceParm);
+
+		const bool bConstAtTheBeginning = bIsOnConstClass || (bIsConstParam && !bShouldHaveRef);
+		if (bConstAtTheBeginning)
+		{
+			TypeText = FString::Printf(TEXT("const %s"), *TypeText);
+		}
+
+		const UClass* const MyPotentialConstClass = (DeclarationType == EExportedDeclaration::Member) ? InProperty->GetOwner<UClass>() : nullptr;
+		const bool bFromConstClass = MyPotentialConstClass && MyPotentialConstClass->HasAnyClassFlags(CLASS_Const);
+		const bool bConstAtTheEnd = bFromConstClass || (bIsConstParam && bShouldHaveRef);
+		if (bConstAtTheEnd)
+		{
+			ExtendedTypeText += TEXT(" const");
+		}
+	}
+
+	FString NameCpp;
+	if (!bSkipParameterName)
+	{
+		ensure((0 == (AdditionalExportCPPFlags & CPPF_BlueprintCppBackend)) || ActualParameterName);
+		NameCpp = ActualParameterName ? *ActualParameterName : InProperty->GetNameCPP();
+	}
+	if (DeclarationType == EExportedDeclaration::MacroParameter)
+	{
+		NameCpp = FString(TEXT(", ")) + NameCpp;
+	}
+
+	TCHAR ArrayStr[MAX_SPRINTF] = {};
+	const bool bExportStaticArray = 0 == (CPPF_NoStaticArray & AdditionalExportCPPFlags);
+	if ((InProperty->ArrayDim != 1) && bExportStaticArray)
+	{
+		if (ArrayDimOverride)
+		{
+			FCString::Sprintf( ArrayStr, TEXT("[%s]"), ArrayDimOverride );
+		}
+		else
+		{
+			FCString::Sprintf( ArrayStr, TEXT("[%i]"), InProperty->ArrayDim );
+		}
+	}
+
+	if(auto BoolProperty = CastField<const FBoolProperty>(InProperty) )
+	{
+		// if this is a member variable, export it as a bitfield
+		if( InProperty->ArrayDim==1 && DeclarationType == EExportedDeclaration::Member )
+		{
+			bool bCanUseBitfield = !BoolProperty->IsNativeBool();
+			// export as a uint32 member....bad to hardcode, but this is a special case that won't be used anywhere else
+			Out.Logf(TEXT("%s%s %s%s%s"), *TypeText, *ExtendedTypeText, *NameCpp, ArrayStr, bCanUseBitfield ? TEXT(":1") : TEXT(""));
+		}
+
+		//@todo we currently can't have out bools.. so this isn't really necessary, but eventually out bools may be supported, so leave here for now
+		else if( bIsParameter && InProperty->HasAnyPropertyFlags(CPF_OutParm) )
+		{
+			// export as a reference
+			Out.Logf(TEXT("%s%s%s %s%s"), *TypeText, *ExtendedTypeText
+				, bCanHaveRef ? TEXT("&") : TEXT("")
+				, *NameCpp, ArrayStr);
+		}
+
+		else
+		{
+			Out.Logf(TEXT("%s%s %s%s"), *TypeText, *ExtendedTypeText, *NameCpp, ArrayStr);
+		}
+	}
+	else 
+	{
+		if ( bIsParameter )
+		{
+			if ( InProperty->ArrayDim > 1 )
+			{
+				// export as a pointer
+				//Out.Logf( TEXT("%s%s* %s"), *TypeText, *ExtendedTypeText, *GetNameCPP() );
+				// don't export as a pointer
+				Out.Logf(TEXT("%s%s %s%s"), *TypeText, *ExtendedTypeText, *NameCpp, ArrayStr);
+			}
+			else
+			{
+				// TODO @zhouminyi 
+				//if ( InProperty->PassCPPArgsByRef() )
+				if ( false )
+				{
+					// export as a reference (const ref if it isn't an out parameter)
+					Out.Logf(TEXT("%s%s%s%s %s"),
+						(bCanHaveConst && !InProperty->HasAnyPropertyFlags(CPF_OutParm | CPF_ConstParm)) ? TEXT("const ") : TEXT(""),
+						*TypeText, *ExtendedTypeText,
+						bCanHaveRef ? TEXT("&") : TEXT(""),
+						*NameCpp);
+				}
+				else
+				{
+					// export as a pointer if this is an optional out parm, reference if it's just an out parm, standard otherwise...
+					TCHAR ModifierString[2] = { TCHAR('\0'), TCHAR('\0') };
+					if (bCanHaveRef && (InProperty->HasAnyPropertyFlags(CPF_OutParm | CPF_ReferenceParm) || bIsInterfaceProp))
+					{
+						ModifierString[0] = TEXT('&');
+					}
+					Out.Logf(TEXT("%s%s%s %s%s"), *TypeText, *ExtendedTypeText, ModifierString, *NameCpp, ArrayStr);
+				}
+			}
+		}
+		else
+		{
+			Out.Logf(TEXT("%s%s %s%s"), *TypeText, *ExtendedTypeText, *NameCpp, ArrayStr);
+		}
+	}
+}
+PRAGMA_ENABLE_DEPRECATION_WARNINGS
+
 FString FEmitterLocalContext::ExportCppDeclaration(const FProperty* Property, EExportedDeclaration::Type DeclarationType, uint32 InExportCPPFlags, FEmitterLocalContext::EPropertyNameInDeclaration ParameterName, const FString& NamePostfix, const FString& TypePrefix) const
 {
 	uint32 ExportCPPFlags = InExportCPPFlags;
@@ -517,7 +662,7 @@ FString FEmitterLocalContext::ExportCppDeclaration(const FProperty* Property, EE
 	const FString ActualNativeName = bSkipParameterName ? FString() : (FEmitHelper::GetCppName(Property, false, ParameterName == EPropertyNameInDeclaration::ForceConverted) + NamePostfix);
 	const FString* ActualCppTypePtr = ActualCppType.IsEmpty() ? nullptr : &ActualCppType;
 	const FString* ActualExtendedCppTypePtr = ActualExtendedCppType.IsEmpty() ? nullptr : &ActualExtendedCppType;
-	Property->ExportCppDeclaration(Out, DeclarationType, nullptr, ExportCPPFlags, bSkipParameterName, ActualCppTypePtr, ActualExtendedCppTypePtr, &ActualNativeName);
+	FProperty_ExportCppDeclaration(Property, Out, DeclarationType, nullptr, ExportCPPFlags, bSkipParameterName, ActualCppTypePtr, ActualExtendedCppTypePtr, &ActualNativeName);
 	return FString(Out);
 
 }
@@ -620,8 +765,11 @@ int32 FEmitHelper::GetInheritenceLevel(const UStruct* Struct)
 
 bool FEmitHelper::PropertyForConstCast(const FProperty* Property)
 {
-	return Property && (Property->HasAnyPropertyFlags(CPF_ConstParm) 
-			|| (Property->PassCPPArgsByRef() && !Property->HasAnyPropertyFlags(CPF_OutParm))); // See implementation in FProperty::ExportCppDeclaration
+	// TODO @zhouminyi
+	BP_CONVERTER_DEBUG("Should rewrite PassCPPArgsByRef?");
+	//return Property && (Property->HasAnyPropertyFlags(CPF_ConstParm) 
+	//		|| (Property->PassCPPArgsByRef() && !Property->HasAnyPropertyFlags(CPF_OutParm))); // See implementation in FProperty::ExportCppDeclaration
+	return false;
 }
 
 void FEmitHelper::ArrayToString(const TArray<FString>& Array, FString& OutString, const TCHAR* Separator)
@@ -717,8 +865,8 @@ FString FEmitHelper::HandleMetaData(FFieldVariant Field, bool AddCategory, const
 		if (Field.IsUObject())
 		{
 			UPackage* Package = Field.IsValid() ? Field.GetOutermost() : nullptr;
-			const UMetaData* MetaData = Package ? Package->GetMetaData() : nullptr;
-			const TMap<FName, FString>* ValuesMapPtr = MetaData ? MetaData->ObjectMetaDataMap.Find(Field.ToUObject()) : nullptr;
+			const FMetaData& MetaData = Package->GetMetaData();
+			const TMap<FName, FString>* ValuesMapPtr = MetaData.ObjectMetaDataMap.Find(Field.ToUObject());
 			if (ValuesMapPtr)
 			{
 				ValuesMap = *ValuesMapPtr;
@@ -735,7 +883,7 @@ FString FEmitHelper::HandleMetaData(FFieldVariant Field, bool AddCategory, const
 		for (auto& Pair : ValuesMap)
 		{
 			FName CurrentKey = Pair.Key;
-			FName NewKey = UMetaData::GetRemappedKeyName(CurrentKey);
+			FName NewKey = FMetaData::GetRemappedKeyName(CurrentKey);
 
 			if (NewKey != NAME_None)
 			{
@@ -2327,7 +2475,10 @@ FString FEmitHelper::AccessInaccessibleProperty(FEmitterLocalContext& EmitterCon
 	const UStruct* PropertyOwner = Property->GetOwnerStruct();
 	if (const UClass* OwnerAsClass = Cast<UClass>(PropertyOwner))
 	{
-		bOwnerIsNoExportType = OwnerAsClass->HasAnyClassFlags(CLASS_NoExport);
+		// TODO @zhouminyi CLASS_NoExport has been removed.
+		//bOwnerIsNoExportType = OwnerAsClass->HasAnyClassFlags(CLASS_NoExport);
+		
+		bOwnerIsNoExportType = false;
 	}
 	else if (const UScriptStruct* OwnerAsScriptStruct = Cast<UScriptStruct>(PropertyOwner))
 	{

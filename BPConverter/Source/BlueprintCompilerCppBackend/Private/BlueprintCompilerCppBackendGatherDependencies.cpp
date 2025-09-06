@@ -132,10 +132,6 @@ protected:
 			FReferenceCollector& CurrentCollector = GetCollector();
 			FProperty* OldCollectorSerializedProperty = CurrentCollector.GetSerializedProperty();
 			CurrentCollector.SetSerializedProperty(GetSerializedProperty());
-
-			// TODO @zhouminyi
-
-			//BP_CONVERTER_DEBUG("Hehe");
 			CurrentCollector.AddReferencedObject(Object, GetSerializingObject(), GetSerializedProperty());
 			CurrentCollector.SetSerializedProperty(OldCollectorSerializedProperty);
 		}

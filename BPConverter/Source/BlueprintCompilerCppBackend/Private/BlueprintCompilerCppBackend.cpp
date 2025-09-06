@@ -1366,7 +1366,7 @@ bool FBlueprintCompilerCppBackend::InnerFunctionImplementation(FKismetFunctionCo
 	{
 		// TODO  @zhouminyi
 		BP_CONVERTER_DEBUG("Cannot handle GotoState for non-ubergraph functions");
-		//bUseGotoState = FunctionContext.MustUseSwitchState(nullptr) || FunctionContext.bIsUbergraph;
+		//bUseGotoState = FunctionContext. (nullptr) || FunctionContext.bIsUbergraph;
 	}
 	ensureMsgf(!bUseFlowStack || bUseGotoState, TEXT("FBlueprintCompilerCppBackend::InnerFunctionImplementation - %s"), *GetPathNameSafe(FunctionContext.Function));
 	TArray<UEdGraphNode*>* ActualLinearExecutionList = &FunctionContext.LinearExecutionList;

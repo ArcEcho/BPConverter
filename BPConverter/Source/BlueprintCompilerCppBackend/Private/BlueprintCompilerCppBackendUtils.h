@@ -20,6 +20,20 @@ struct FNonNativeComponentData;
 enum class ENativizedTermUsage : uint8;
 struct FEmitterLocalContext;
 
+
+// EExportedDeclaration has been removed in UE5.6.1
+namespace EExportedDeclaration
+{
+	enum  Type
+	{
+			Local,
+			Member,
+			Parameter,
+			/** Type and mane are separated by comma */
+			MacroParameter, 
+	};
+}
+
 struct FCodeText
 {
 	FString Indent;
