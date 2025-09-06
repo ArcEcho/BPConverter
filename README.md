@@ -10,7 +10,7 @@ An attempt to bring Blueprint Nativization back to UE5
 
 ## Development Environment
 + Windows 11
-+ UE5.5.4
++ UE5.6.1
 
 ## Usage
 + Convert Blueprints into machine-generated code
