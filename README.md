@@ -2,7 +2,7 @@
 An attempt to bring Blueprint Nativization back to UE5
 
 ## Purpose
-+ For educational purposes only
++ For study purposes only
 + To make working with complex Blueprints slightly more manageable
 
 ## Important Notes
